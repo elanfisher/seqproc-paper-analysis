@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Results (large files)
+results/*/
+
+# Data files
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
