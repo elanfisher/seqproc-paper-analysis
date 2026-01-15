@@ -329,7 +329,20 @@ def main():
         )
         print(f"{len(ground_truth):,} reads, {len(whitelist):,} whitelist barcodes")
         
-        # Run tools ONCE
+        # Save whitelist to file for verification
+        whitelist_path = output_dir / 'whitelist.txt'
+        with open(whitelist_path, 'w') as f:
+            for bc in sorted(whitelist):
+                f.write(f"{bc}\n")
+        print(f"Whitelist saved to: {whitelist_path}")
+        
+        # Both tools process the SAME input files
+        print(f"\n*** Both tools use SAME input data: ***")
+        print(f"  R1: {r1_path}")
+        print(f"  R2: {r2_path}")
+        print(f"  Whitelist: {len(whitelist):,} BC1+BC2 combinations\n")
+        
+        # Run tools ONCE on the same data
         print("Running seqproc...", end=" ", flush=True)
         sp_pred = run_seqproc(r1_path, r2_path, args.threads, tmpdir)
         print(f"{len(sp_pred):,} reads extracted")
@@ -337,6 +350,10 @@ def main():
         print("Running matchbox...", end=" ", flush=True)
         mb_pred = run_matchbox(r2_path, args.threads, tmpdir)
         print(f"{len(mb_pred):,} reads extracted")
+        
+        # Verify both tools processed the same reads
+        common_reads = set(sp_pred.keys()) & set(mb_pred.keys())
+        print(f"\nVerification: {len(common_reads):,} reads processed by BOTH tools")
         
         # Calculate precision/recall at each tolerance level
         for tol in tolerance_levels:
