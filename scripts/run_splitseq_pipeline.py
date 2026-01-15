@@ -38,14 +38,28 @@ SEQPROC_BIN = os.environ.get("SEQPROC_BIN", "seqproc")
 MATCHBOX_BIN = os.environ.get("MATCHBOX_BIN", "matchbox")
 SPLITCODE_BIN = os.environ.get("SPLITCODE_BIN", "splitcode")
 
-# Config files
-SEQPROC_CONFIG = "configs/seqproc/splitseq_real.geom"
-MATCHBOX_CONFIG = "configs/matchbox/splitseq.mb"
-SPLITCODE_CONFIG = "configs/splitcode/splitseq_paper.config"
+# Default config files (can be overridden via command line)
+DEFAULT_SEQPROC_CONFIG = "configs/seqproc/splitseq_real.geom"
+DEFAULT_MATCHBOX_CONFIG = "configs/matchbox/splitseq.mb"
+DEFAULT_SPLITCODE_CONFIG = "configs/splitcode/splitseq_paper.config"
 
-# Default linker sequences (SRR6750041 uses GCT variant)
-DEFAULT_LINKER1 = "GTGGCCGCTGTTTCGCATCGGCGTACGACT"
-DEFAULT_LINKER2 = "ATCCACGTGCTTGAGA"
+# Dataset presets for easy switching
+DATASET_PRESETS = {
+    'SRR6750041': {
+        'description': 'Paired-end SPLiT-seq (77.6M reads)',
+        'mode': 'paired',
+        'seqproc_config': 'configs/seqproc/splitseq_real.geom',
+        'matchbox_config': 'configs/matchbox/splitseq.mb',
+        'splitcode_config': 'configs/splitcode/splitseq_paper.config',
+    },
+    'SRR13948564': {
+        'description': 'Single-end SPLiT-seq (long-read)',
+        'mode': 'single',
+        'seqproc_config': 'configs/seqproc/splitseq_singleend.geom',
+        'matchbox_config': 'configs/matchbox/splitseq_singleend.mb',
+        'splitcode_config': 'configs/splitcode/splitseq_paper.config',
+    },
+}
 
 COLORS = {
     'seqproc': '#4DBBD5',
@@ -58,12 +72,14 @@ COLORS = {
 class PipelineConfig:
     name: str
     r1_path: str
-    r2_path: str
+    r2_path: str  # Same as r1_path for single-end
     threads: int
     replicates: int
-    linker1: str
-    linker2: str
     output_dir: Path
+    seqproc_config: str = DEFAULT_SEQPROC_CONFIG
+    matchbox_config: str = DEFAULT_MATCHBOX_CONFIG
+    splitcode_config: str = DEFAULT_SPLITCODE_CONFIG
+    mode: str = 'paired'  # 'paired' or 'single'
     total_reads: int = 0
 
 
@@ -108,7 +124,7 @@ def run_seqproc(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, s
     """Run seqproc."""
     out1 = f"{tmpdir}/seqproc_R1.fq"
     out2 = f"{tmpdir}/seqproc_R2.fq"
-    cmd = f"{SEQPROC_BIN} --geom {SEQPROC_CONFIG} --file1 {config.r1_path} --file2 {config.r2_path} --out1 {out1} --out2 {out2} --threads {config.threads}"
+    cmd = f"{SEQPROC_BIN} --geom {config.seqproc_config} --file1 {config.r1_path} --file2 {config.r2_path} --out1 {out1} --out2 {out2} --threads {config.threads}"
     runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
     reads = count_fastq_reads(out2)
     return runtime, rc, reads, out2
@@ -118,9 +134,11 @@ def run_matchbox(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, 
     """Run matchbox using config file."""
     out_tsv = f"{tmpdir}/matchbox_out.tsv"
     # Read script from config file
-    with open(MATCHBOX_CONFIG, 'r') as f:
+    with open(config.matchbox_config, 'r') as f:
         mb_script = f.read()
-    cmd = f'{MATCHBOX_BIN} -e 0.2 -t {config.threads} -r "{mb_script}" {config.r2_path} > {out_tsv}'
+    # For single-end, use r1_path (which equals r2_path)
+    input_file = config.r1_path if config.mode == 'single' else config.r2_path
+    cmd = f'{MATCHBOX_BIN} -e 0.2 -t {config.threads} -r "{mb_script}" {input_file} > {out_tsv}'
     runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
     
     # Count output lines
@@ -133,13 +151,23 @@ def run_matchbox(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, 
 
 def run_splitcode(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, str]:
     """Run splitcode."""
-    out1 = f"{tmpdir}/splitcode_R1.fq"
-    out2 = f"{tmpdir}/splitcode_R2.fq"
     mapping = f"{tmpdir}/splitcode_mapping.txt"
-    cmd = f"{SPLITCODE_BIN} -c {SPLITCODE_CONFIG} --assign -N 2 -t {config.threads} -m {mapping} -o {out1},{out2} {config.r1_path} {config.r2_path}"
-    runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
-    reads = count_fastq_reads(out2)
-    return runtime, rc, reads, out2
+    
+    if config.mode == 'single':
+        # Single-end mode
+        out_fq = f"{tmpdir}/splitcode_out.fq"
+        cmd = f"{SPLITCODE_BIN} -c {config.splitcode_config} --assign -N 1 -t {config.threads} -m {mapping} -o {out_fq} {config.r1_path}"
+        runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
+        reads = count_fastq_reads(out_fq)
+        return runtime, rc, reads, out_fq
+    else:
+        # Paired-end mode
+        out1 = f"{tmpdir}/splitcode_R1.fq"
+        out2 = f"{tmpdir}/splitcode_R2.fq"
+        cmd = f"{SPLITCODE_BIN} -c {config.splitcode_config} --assign -N 2 -t {config.threads} -m {mapping} -o {out1},{out2} {config.r1_path} {config.r2_path}"
+        runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
+        reads = count_fastq_reads(out2)
+        return runtime, rc, reads, out2
 
 
 def extract_seqproc_barcodes(fastq_path: str) -> Dict[str, Tuple[str, str, str, str]]:
@@ -419,32 +447,70 @@ def generate_figures(results: List[ToolResult], accuracy: Dict, config: Pipeline
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SPLiT-seq Unified Pipeline")
-    parser.add_argument('--r1', required=True, help='R1 FASTQ file')
-    parser.add_argument('--r2', required=True, help='R2 FASTQ file')
+    parser = argparse.ArgumentParser(
+        description="SPLiT-seq Unified Pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Dataset Presets:
+  {', '.join(DATASET_PRESETS.keys())}
+
+Examples:
+  # Paired-end dataset (SRR6750041)
+  python scripts/run_splitseq_pipeline.py --r1 R1.fq --r2 R2.fq --name SRR6750041 --preset SRR6750041
+  
+  # Single-end dataset (SRR13948564) 
+  python scripts/run_splitseq_pipeline.py --r1 data.fq --name SRR13948564 --preset SRR13948564
+"""
+    )
+    parser.add_argument('--r1', required=True, help='R1 FASTQ file (or single-end input)')
+    parser.add_argument('--r2', default=None, help='R2 FASTQ file (optional for single-end)')
     parser.add_argument('--name', required=True, help='Dataset name')
+    parser.add_argument('--preset', default=None, choices=list(DATASET_PRESETS.keys()),
+                        help='Use preset configs for known datasets')
+    parser.add_argument('--mode', default='paired', choices=['paired', 'single'],
+                        help='Data mode: paired or single-end')
     parser.add_argument('--threads', type=int, default=4, help='Threads per tool')
     parser.add_argument('--replicates', type=int, default=5, help='Replicates for runtime benchmark')
-    parser.add_argument('--linker1', default=DEFAULT_LINKER1)
-    parser.add_argument('--linker2', default=DEFAULT_LINKER2)
+    parser.add_argument('--seqproc-config', default=None, help='Override seqproc config')
+    parser.add_argument('--matchbox-config', default=None, help='Override matchbox config')
+    parser.add_argument('--splitcode-config', default=None, help='Override splitcode config')
     parser.add_argument('--output-dir', default=None)
     args = parser.parse_args()
+    
+    # Apply preset if specified
+    if args.preset and args.preset in DATASET_PRESETS:
+        preset = DATASET_PRESETS[args.preset]
+        mode = preset['mode']
+        seqproc_config = args.seqproc_config or preset['seqproc_config']
+        matchbox_config = args.matchbox_config or preset['matchbox_config']
+        splitcode_config = args.splitcode_config or preset['splitcode_config']
+        print(f"Using preset: {args.preset} ({preset['description']})")
+    else:
+        mode = args.mode
+        seqproc_config = args.seqproc_config or DEFAULT_SEQPROC_CONFIG
+        matchbox_config = args.matchbox_config or DEFAULT_MATCHBOX_CONFIG
+        splitcode_config = args.splitcode_config or DEFAULT_SPLITCODE_CONFIG
+    
+    # For single-end, r2 = r1
+    r2_path = args.r2 if args.r2 else args.r1
     
     output_dir = Path(args.output_dir) if args.output_dir else PROJECT_ROOT / f"results/pipeline/{args.name}"
     
     # Count reads
     print("Counting input reads...")
-    total_reads = count_fastq_reads(args.r2)
+    total_reads = count_fastq_reads(args.r1)
     
     config = PipelineConfig(
         name=args.name,
         r1_path=args.r1,
-        r2_path=args.r2,
+        r2_path=r2_path,
         threads=args.threads,
         replicates=args.replicates,
-        linker1=args.linker1,
-        linker2=args.linker2,
         output_dir=output_dir,
+        seqproc_config=seqproc_config,
+        matchbox_config=matchbox_config,
+        splitcode_config=splitcode_config,
+        mode=mode,
         total_reads=total_reads,
     )
     
@@ -452,11 +518,17 @@ def main():
     print("SPLiT-seq Unified Pipeline")
     print("=" * 70)
     print(f"Dataset:     {config.name}")
+    print(f"Mode:        {config.mode}")
     print(f"R1:          {config.r1_path}")
-    print(f"R2:          {config.r2_path}")
+    if config.mode == 'paired':
+        print(f"R2:          {config.r2_path}")
     print(f"Total reads: {config.total_reads:,}")
     print(f"Threads:     {config.threads}")
     print(f"Replicates:  {config.replicates}")
+    print(f"Configs:")
+    print(f"  seqproc:   {config.seqproc_config}")
+    print(f"  matchbox:  {config.matchbox_config}")
+    print(f"  splitcode: {config.splitcode_config}")
     print(f"Output:      {config.output_dir}")
     print("=" * 70)
     
@@ -556,10 +628,15 @@ def main():
     
     # Save commands
     with open(output_dir / 'commands.txt', 'w') as f:
-        f.write("# SPLiT-seq Pipeline Commands\n\n")
-        f.write(f"# seqproc\n{SEQPROC_BIN} --geom {SEQPROC_CONFIG} --file1 {config.r1_path} --file2 {config.r2_path} --out1 OUT_R1.fq --out2 OUT_R2.fq --threads {config.threads}\n\n")
-        f.write(f"# matchbox\n{MATCHBOX_BIN} -e 0.2 -t {config.threads} -r '...pattern...' {config.r2_path}\n\n")
-        f.write(f"# splitcode\n{SPLITCODE_BIN} -c {SPLITCODE_CONFIG} --assign -N 2 -t {config.threads} -m mapping.txt -o OUT_R1.fq,OUT_R2.fq {config.r1_path} {config.r2_path}\n")
+        f.write(f"# SPLiT-seq Pipeline Commands\n# Mode: {config.mode}\n\n")
+        if config.mode == 'single':
+            f.write(f"# seqproc (single-end)\n{SEQPROC_BIN} --geom {config.seqproc_config} --file1 {config.r1_path} --out1 OUT_R1.fq --out2 OUT_R2.fq --threads {config.threads}\n\n")
+            f.write(f"# matchbox\n{MATCHBOX_BIN} -e 0.2 -t {config.threads} -r '...see config...' {config.r1_path}\n\n")
+            f.write(f"# splitcode (single-end)\n{SPLITCODE_BIN} -c {config.splitcode_config} --assign -N 1 -t {config.threads} -m mapping.txt -o OUT.fq {config.r1_path}\n")
+        else:
+            f.write(f"# seqproc\n{SEQPROC_BIN} --geom {config.seqproc_config} --file1 {config.r1_path} --file2 {config.r2_path} --out1 OUT_R1.fq --out2 OUT_R2.fq --threads {config.threads}\n\n")
+            f.write(f"# matchbox\n{MATCHBOX_BIN} -e 0.2 -t {config.threads} -r '...see config...' {config.r2_path}\n\n")
+            f.write(f"# splitcode\n{SPLITCODE_BIN} -c {config.splitcode_config} --assign -N 2 -t {config.threads} -m mapping.txt -o OUT_R1.fq,OUT_R2.fq {config.r1_path} {config.r2_path}\n")
     
     # Print summary
     print("\n" + "=" * 70)
