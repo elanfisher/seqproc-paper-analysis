@@ -19,3 +19,8 @@ results/*/
 
 # OS
 .DS_Store
+
+# Large data files
+data/10x/
+*.sra
+*.fastq

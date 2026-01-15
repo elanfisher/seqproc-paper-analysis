@@ -59,6 +59,20 @@ DATASET_PRESETS = {
         'matchbox_config': 'configs/matchbox/splitseq_singleend.mb',
         'splitcode_config': 'configs/splitcode/splitseq_paper.config',
     },
+    'ERR9958134': {
+        'description': '10x Chromium GridION long-read',
+        'mode': 'single',
+        'seqproc_config': 'configs/seqproc/10x_longread.geom',
+        'matchbox_config': 'configs/matchbox/10x_longread.mb',
+        'splitcode_config': None,  # No splitcode config for 10x
+    },
+    'ERR9958135': {
+        'description': '10x Chromium PromethION long-read',
+        'mode': 'single',
+        'seqproc_config': 'configs/seqproc/10x_longread.geom',
+        'matchbox_config': 'configs/matchbox/10x_longread.mb',
+        'splitcode_config': None,  # No splitcode config for 10x
+    },
 }
 
 COLORS = {
@@ -295,7 +309,9 @@ def generate_figures(results: List[ToolResult], accuracy: Dict, config: Pipeline
     output_dir = config.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    tools = ['seqproc', 'matchbox', 'splitcode']
+    # Determine which tools were run based on results
+    tools_run = list(set(r.tool for r in results))
+    tools = [t for t in ['seqproc', 'matchbox', 'splitcode'] if t in tools_run]
     
     # Aggregate results by tool
     tool_runtimes = {t: [] for t in tools}
@@ -561,14 +577,15 @@ Examples:
             if rep == 1:
                 accuracy['mb_barcodes'] = extract_matchbox_barcodes(out_path)
             
-            # Splitcode
-            print(f"    splitcode...", end=" ", flush=True)
-            runtime, rc, reads, out_path = run_splitcode(config, tmpdir)
-            print(f"{runtime:.2f}s, {reads:,} reads")
-            all_results.append(ToolResult('splitcode', runtime, reads, rc, rep))
-            
-            if rep == 1:
-                accuracy['sc_barcodes'] = extract_splitcode_barcodes(out_path)
+            # Splitcode (optional - skip if no config)
+            if config.splitcode_config:
+                print(f"    splitcode...", end=" ", flush=True)
+                runtime, rc, reads, out_path = run_splitcode(config, tmpdir)
+                print(f"{runtime:.2f}s, {reads:,} reads")
+                all_results.append(ToolResult('splitcode', runtime, reads, rc, rep))
+                
+                if rep == 1:
+                    accuracy['sc_barcodes'] = extract_splitcode_barcodes(out_path)
     
     # Calculate accuracy metrics
     print("\n[2/2] Calculating accuracy...")
@@ -606,7 +623,7 @@ Examples:
         'accuracy': {
             'seqproc_reads': len(sp_bc),
             'matchbox_reads': len(mb_bc),
-            'splitcode_reads': [r.reads_out for r in all_results if r.tool == 'splitcode'][0] if all_results else 0,
+            'splitcode_reads': ([r.reads_out for r in all_results if r.tool == 'splitcode'] or [0])[0],
             'common_reads': agreement['common_reads'],
             'bc_match_fuzzy_rate': agreement['bc_match_fuzzy_rate'],
             'correlation_r_squared_mb': r_squared_mb,
@@ -655,7 +672,8 @@ Examples:
     
     print("-" * 60)
     print(f"Barcode correlation (seqproc vs matchbox): R² = {r_squared_mb:.4f}")
-    print(f"Barcode correlation (seqproc vs splitcode): R² = {r_squared_sc:.4f}")
+    if 'splitcode' in tools:
+        print(f"Barcode correlation (seqproc vs splitcode): R² = {r_squared_sc:.4f}")
     print(f"\nFigures saved to: {output_dir}")
     print("=" * 70)
 

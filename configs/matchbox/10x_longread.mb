@@ -1,0 +1,15 @@
+primer = CTACACGACGCTCTTCCGATCT
+
+if read matches {
+    [_ primer b:|16| _] => {
+        if b.qual.to_qscores().min() >= 15 {
+            '{read.id}\t{b.seq}'.stdout!()
+        }
+    }
+
+    [ _ b:|16| -primer _] => {
+        if b.qual.to_qscores().min() >= 15 {
+            '{read.id}\t{-b.seq}'.stdout!()
+        }
+    }
+}
