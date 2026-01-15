@@ -40,6 +40,7 @@ SPLITCODE_BIN = os.environ.get("SPLITCODE_BIN", "splitcode")
 
 # Config files
 SEQPROC_CONFIG = "configs/seqproc/splitseq_real.geom"
+MATCHBOX_CONFIG = "configs/matchbox/splitseq.mb"
 SPLITCODE_CONFIG = "configs/splitcode/splitseq_paper.config"
 
 # Default linker sequences (SRR6750041 uses GCT variant)
@@ -114,15 +115,11 @@ def run_seqproc(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, s
 
 
 def run_matchbox(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, str]:
-    """Run matchbox."""
+    """Run matchbox using config file."""
     out_tsv = f"{tmpdir}/matchbox_out.tsv"
-    mb_script = f'''
-linker1 = {config.linker1}
-linker2 = {config.linker2}
-if read matches [_:|2| umi:|10| bc3:|8| linker1 bc2:|8| linker2 bc1:|8| _] => {{
-    '{{read.id}}\\t{{bc1.seq}}\\t{{bc2.seq}}\\t{{bc3.seq}}\\t{{umi.seq}}'.stdout!()
-}}
-'''
+    # Read script from config file
+    with open(MATCHBOX_CONFIG, 'r') as f:
+        mb_script = f.read()
     cmd = f'{MATCHBOX_BIN} -e 0.2 -t {config.threads} -r "{mb_script}" {config.r2_path} > {out_tsv}'
     runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
     
@@ -180,6 +177,37 @@ def extract_matchbox_barcodes(tsv_path: str) -> Dict[str, Tuple[str, str, str, s
             if len(parts) >= 5:
                 read_id = parts[0]
                 bc1, bc2, bc3, umi = parts[1], parts[2], parts[3], parts[4]
+                results[read_id] = (bc1, bc2, bc3, umi)
+    return results
+
+
+def extract_splitcode_barcodes(fastq_path: str) -> Dict[str, Tuple[str, str, str, str]]:
+    """Extract barcodes from splitcode output.
+    
+    Splitcode assigns barcode IDs in the header, not sequences.
+    We extract BC1+BC2 from the sequence for correlation analysis.
+    """
+    results = {}
+    if not os.path.exists(fastq_path):
+        return results
+    with open(fastq_path, 'r') as f:
+        while True:
+            header = f.readline()
+            if not header:
+                break
+            seq = f.readline().strip()
+            f.readline()
+            f.readline()
+            
+            # Parse read ID from header
+            read_id = header.strip().split()[0].replace('@', '')
+            # Splitcode outputs the barcode-assigned sequence
+            # Extract BC1+BC2 pattern similar to seqproc for correlation
+            if len(seq) >= 16:
+                bc1 = seq[-8:] if len(seq) >= 8 else seq
+                bc2 = seq[-16:-8] if len(seq) >= 16 else ''
+                bc3 = ''
+                umi = ''
                 results[read_id] = (bc1, bc2, bc3, umi)
     return results
 
@@ -320,7 +348,7 @@ def generate_figures(results: List[ToolResult], accuracy: Dict, config: Pipeline
     plt.close()
     
     # === Figure 4: Barcode Correlation (seqproc vs matchbox) ===
-    r_squared = 0
+    r_squared_mb = 0
     if 'sp_counts' in accuracy and 'mb_counts' in accuracy:
         sp_counts = accuracy['sp_counts']
         mb_counts = accuracy['mb_counts']
@@ -331,7 +359,7 @@ def generate_figures(results: List[ToolResult], accuracy: Dict, config: Pipeline
             mb_vals = [mb_counts[bc] for bc in common_bc]
             
             correlation = np.corrcoef(sp_vals, mb_vals)[0, 1]
-            r_squared = correlation ** 2
+            r_squared_mb = correlation ** 2
             
             fig, ax = plt.subplots(figsize=(8, 8))
             ax.scatter(mb_vals, sp_vals, alpha=0.4, s=15, c='#333333')
@@ -341,7 +369,7 @@ def generate_figures(results: List[ToolResult], accuracy: Dict, config: Pipeline
             
             ax.set_xlabel('Reads per barcode (matchbox)', fontsize=12)
             ax.set_ylabel('Reads per barcode (seqproc)', fontsize=12)
-            ax.set_title(f'Barcode Count Correlation\nR² = {r_squared:.3f} ({len(common_bc):,} unique barcodes)', 
+            ax.set_title(f'Barcode Count Correlation (seqproc vs matchbox)\nR² = {r_squared_mb:.3f} ({len(common_bc):,} unique barcodes)', 
                          fontsize=14, fontweight='bold')
             ax.set_xscale('log')
             ax.set_yscale('log')
@@ -349,11 +377,45 @@ def generate_figures(results: List[ToolResult], accuracy: Dict, config: Pipeline
             ax.grid(True, alpha=0.3)
             
             plt.tight_layout()
-            plt.savefig(output_dir / 'fig_correlation.png', dpi=300, bbox_inches='tight')
-            plt.savefig(output_dir / 'fig_correlation.pdf', bbox_inches='tight')
+            plt.savefig(output_dir / 'fig_correlation_seqproc_matchbox.png', dpi=300, bbox_inches='tight')
+            plt.savefig(output_dir / 'fig_correlation_seqproc_matchbox.pdf', bbox_inches='tight')
             plt.close()
     
-    return r_squared
+    # === Figure 5: Barcode Correlation (seqproc vs splitcode) ===
+    r_squared_sc = 0
+    if 'sp_counts' in accuracy and 'sc_counts' in accuracy:
+        sp_counts = accuracy['sp_counts']
+        sc_counts = accuracy['sc_counts']
+        common_bc = set(sp_counts.keys()) & set(sc_counts.keys())
+        
+        if len(common_bc) > 10:
+            sp_vals = [sp_counts[bc] for bc in common_bc]
+            sc_vals = [sc_counts[bc] for bc in common_bc]
+            
+            correlation = np.corrcoef(sp_vals, sc_vals)[0, 1]
+            r_squared_sc = correlation ** 2
+            
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.scatter(sc_vals, sp_vals, alpha=0.4, s=15, c='#333333')
+            
+            max_val = max(max(sp_vals), max(sc_vals))
+            ax.plot([1, max_val], [1, max_val], 'r--', alpha=0.7, linewidth=2, label='y=x')
+            
+            ax.set_xlabel('Reads per barcode (splitcode)', fontsize=12)
+            ax.set_ylabel('Reads per barcode (seqproc)', fontsize=12)
+            ax.set_title(f'Barcode Count Correlation (seqproc vs splitcode)\nR² = {r_squared_sc:.3f} ({len(common_bc):,} unique barcodes)', 
+                         fontsize=14, fontweight='bold')
+            ax.set_xscale('log')
+            ax.set_yscale('log')
+            ax.legend(fontsize=11)
+            ax.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.savefig(output_dir / 'fig_correlation_seqproc_splitcode.png', dpi=300, bbox_inches='tight')
+            plt.savefig(output_dir / 'fig_correlation_seqproc_splitcode.pdf', bbox_inches='tight')
+            plt.close()
+    
+    return r_squared_mb, r_squared_sc
 
 
 def main():
@@ -432,24 +494,29 @@ def main():
             runtime, rc, reads, out_path = run_splitcode(config, tmpdir)
             print(f"{runtime:.2f}s, {reads:,} reads")
             all_results.append(ToolResult('splitcode', runtime, reads, rc, rep))
+            
+            if rep == 1:
+                accuracy['sc_barcodes'] = extract_splitcode_barcodes(out_path)
     
     # Calculate accuracy metrics
     print("\n[2/2] Calculating accuracy...")
     
     sp_bc = accuracy.get('sp_barcodes', {})
     mb_bc = accuracy.get('mb_barcodes', {})
+    sc_bc = accuracy.get('sc_barcodes', {})
     
     agreement = calculate_agreement(sp_bc, mb_bc)
     accuracy['agreement'] = agreement
     accuracy['sp_counts'] = count_barcode_occurrences(sp_bc)
     accuracy['mb_counts'] = count_barcode_occurrences(mb_bc)
+    accuracy['sc_counts'] = count_barcode_occurrences(sc_bc)
     
-    print(f"  Common reads: {agreement['common_reads']:,}")
+    print(f"  Common reads (seqproc/matchbox): {agreement['common_reads']:,}")
     print(f"  Fuzzy BC match: {agreement['bc_match_fuzzy']:,} ({agreement['bc_match_fuzzy_rate']:.1%})")
     
     # Generate figures
     print("\nGenerating figures...")
-    r_squared = generate_figures(all_results, accuracy, config)
+    r_squared_mb, r_squared_sc = generate_figures(all_results, accuracy, config)
     
     # Save summary
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -470,7 +537,8 @@ def main():
             'splitcode_reads': [r.reads_out for r in all_results if r.tool == 'splitcode'][0] if all_results else 0,
             'common_reads': agreement['common_reads'],
             'bc_match_fuzzy_rate': agreement['bc_match_fuzzy_rate'],
-            'correlation_r_squared': r_squared,
+            'correlation_r_squared_mb': r_squared_mb,
+            'correlation_r_squared_sc': r_squared_sc,
         }
     }
     
@@ -509,7 +577,8 @@ def main():
         print(f"{tool:<12} {r['mean']:>9.2f}s {r['std']:>7.2f}s {r['reads']:>12,} {match_pct:>7.1f}% {speedup:>7.2f}x")
     
     print("-" * 60)
-    print(f"Barcode correlation (seqproc vs matchbox): R² = {r_squared:.4f}")
+    print(f"Barcode correlation (seqproc vs matchbox): R² = {r_squared_mb:.4f}")
+    print(f"Barcode correlation (seqproc vs splitcode): R² = {r_squared_sc:.4f}")
     print(f"\nFigures saved to: {output_dir}")
     print("=" * 70)
 
