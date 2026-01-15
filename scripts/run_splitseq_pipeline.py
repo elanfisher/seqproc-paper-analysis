@@ -138,10 +138,19 @@ def run_seqproc(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, s
     """Run seqproc."""
     out1 = f"{tmpdir}/seqproc_R1.fq"
     out2 = f"{tmpdir}/seqproc_R2.fq"
-    cmd = f"{SEQPROC_BIN} --geom {config.seqproc_config} --file1 {config.r1_path} --file2 {config.r2_path} --out1 {out1} --out2 {out2} --threads {config.threads}"
-    runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
-    reads = count_fastq_reads(out2)
-    return runtime, rc, reads, out2
+    
+    if config.mode == 'single':
+        # Native single-end mode: no --file2 or --out2
+        cmd = f"{SEQPROC_BIN} --geom {config.seqproc_config} --file1 {config.r1_path} --out1 {out1} --threads {config.threads}"
+        runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
+        reads = count_fastq_reads(out1)
+        return runtime, rc, reads, out1
+    else:
+        # Paired-end mode
+        cmd = f"{SEQPROC_BIN} --geom {config.seqproc_config} --file1 {config.r1_path} --file2 {config.r2_path} --out1 {out1} --out2 {out2} --threads {config.threads}"
+        runtime, rc, stdout, stderr = run_command(cmd, PROJECT_ROOT)
+        reads = count_fastq_reads(out2)
+        return runtime, rc, reads, out2
 
 
 def run_matchbox(config: PipelineConfig, tmpdir: str) -> Tuple[float, int, str, str]:
