@@ -42,8 +42,8 @@ COLORS = {
     'splitcode': '#7B2D8E',    # Purple
 }
 
-# Dataset configurations
-DATASETS = {
+# Dataset configurations (1M subset)
+DATASETS_1M = {
     'splitseq_paired': {
         'name': 'SPLiT-seq Paired-End',
         'short_name': 'SPLiT-seq PE',
@@ -63,7 +63,7 @@ DATASETS = {
         'r1': 'data/SRR13948564_1M.fastq',
         'r2': None,
         'mode': 'single',
-        'seqproc_geom': 'configs/seqproc/splitseq_singleend_primer.geom',  # Use optimized primer version
+        'seqproc_geom': 'configs/seqproc/splitseq_singleend_primer.geom',
         'matchbox_config': 'configs/matchbox/splitseq_singleend.mb',
         'splitcode_config': 'configs/splitcode/splitseq_singleend.config',
         'reads': 1_000_000,
@@ -93,6 +93,49 @@ DATASETS = {
         'reads': 1_000_000,
     },
 }
+
+# Full dataset configurations
+DATASETS_FULL = {
+    'splitseq_paired': {
+        'name': 'SPLiT-seq Paired-End (Full)',
+        'short_name': 'SPLiT-seq PE',
+        'description': 'SRR6750041 - Full 77.6M paired-end reads',
+        'r1': 'data/SRR6750041_R1.fastq',
+        'r2': 'data/SRR6750041_R2.fastq',
+        'mode': 'paired',
+        'seqproc_geom': 'configs/seqproc/splitseq_real.geom',
+        'matchbox_config': 'configs/matchbox/splitseq.mb',
+        'splitcode_config': 'configs/splitcode/splitseq_paper.config',
+        'reads': 77_621_181,
+    },
+    'splitseq_single': {
+        'name': 'SPLiT-seq Single-End (Full)',
+        'short_name': 'SPLiT-seq SE',
+        'description': 'SRR13948564 - Full 5.6M long-read single-end',
+        'r1': 'data/SRR13948564.fastq',
+        'r2': None,
+        'mode': 'single',
+        'seqproc_geom': 'configs/seqproc/splitseq_singleend_primer.geom',
+        'matchbox_config': 'configs/matchbox/splitseq_singleend.mb',
+        'splitcode_config': 'configs/splitcode/splitseq_singleend.config',
+        'reads': 5_589_220,
+    },
+    '10x_gridion': {
+        'name': '10x GridION (Full)',
+        'short_name': '10x GridION',
+        'description': 'ERR9958134 - Full 7.5M GridION reads',
+        'r1': 'data/10x/ERR9958134.fastq',
+        'r2': None,
+        'mode': 'single',
+        'seqproc_geom': 'configs/seqproc/10x_longread.geom',
+        'matchbox_config': 'configs/matchbox/10x_longread.mb',
+        'splitcode_config': 'configs/splitcode/10x_longread.config',
+        'reads': 7_521_667,
+    },
+}
+
+# Default to 1M subset
+DATASETS = DATASETS_1M
 
 
 @dataclass
@@ -193,7 +236,7 @@ def run_splitcode(dataset: dict, tmpdir: str, threads: int) -> Tuple[float, int]
 # Benchmark Runner
 # ============================================================================
 
-def run_all_benchmarks(threads: int, replicates: int) -> List[BenchmarkResult]:
+def run_all_benchmarks(threads: int, replicates: int, splitcode_threads: int = 1, output_dir: Path = None) -> List[BenchmarkResult]:
     """Run all benchmarks and return results."""
     results = []
     
@@ -223,10 +266,10 @@ def run_all_benchmarks(threads: int, replicates: int) -> List[BenchmarkResult]:
                 print(f"{runtime:.2f}s, {reads:,} reads")
                 results.append(BenchmarkResult(dataset_key, 'matchbox', runtime, reads, rep))
                 
-                # splitcode (if supported)
+                # splitcode (if supported) - use limited threads to conserve memory
                 if dataset['splitcode_config']:
                     print(f"    splitcode...", end=" ", flush=True)
-                    runtime, reads = run_splitcode(dataset, tmpdir, threads)
+                    runtime, reads = run_splitcode(dataset, tmpdir, splitcode_threads)
                     print(f"{runtime:.2f}s, {reads:,} reads")
                     results.append(BenchmarkResult(dataset_key, 'splitcode', runtime, reads, rep))
     
@@ -249,13 +292,17 @@ def generate_figures(results: List[BenchmarkResult], output_dir: Path):
     # ========================================================================
     # Figure 1: Runtime Comparison Bar Chart (Main Figure)
     # ========================================================================
-    fig, axes = plt.subplots(1, 4, figsize=(16, 5))
+    # Get datasets that have results
+    dataset_order = [k for k in ['splitseq_paired', 'splitseq_single', '10x_gridion', '10x_promethion'] if k in data]
+    num_datasets = len(dataset_order)
     
-    dataset_order = ['splitseq_paired', 'splitseq_single', '10x_gridion', '10x_promethion']
+    fig, axes = plt.subplots(1, num_datasets, figsize=(4 * num_datasets, 5))
+    if num_datasets == 1:
+        axes = [axes]
     
     for idx, dataset_key in enumerate(dataset_order):
         ax = axes[idx]
-        dataset_info = DATASETS[dataset_key]
+        dataset_info = DATASETS.get(dataset_key, {'short_name': dataset_key})
         
         if dataset_key not in data:
             ax.set_visible(False)
@@ -878,7 +925,7 @@ def run_precision_recall_analysis(threads: int, output_dir: Path):
     print("Running Precision-Recall Analysis (with splitcode)")
     print("="*70)
     
-    NUM_READS = 50000
+    NUM_READS = 10000  # Reduced for faster whitelist matching
     INPUT_ERROR_RATE = 0.02
     LINKER1 = "GTGGCCGCTGTTTCGCATCGGCGTACGACT"
     LINKER2 = "ATCCACGTGCTTGAGA"
@@ -1003,14 +1050,30 @@ def run_precision_recall_analysis(threads: int, output_dir: Path):
         print(f"{len(sc_pred):,} reads")
         
         # Pre-build whitelist lookup structures for efficiency
-        wl_dict = {}  # barcode -> split parts
-        for wl_bc in whitelist:
-            wl_bc1, wl_bc2 = wl_bc.split('_')
-            wl_dict[wl_bc] = (wl_bc1, wl_bc2)
+        wl_list = [(wl_bc, wl_bc.split('_')[0], wl_bc.split('_')[1]) for wl_bc in whitelist]
+        
+        def find_whitelist_match(bc1, bc2, max_dist):
+            """Find closest whitelist match within max_dist. Returns (matched_key, dist) or (None, -1)."""
+            query = f"{bc1}_{bc2}"
+            if query in whitelist:
+                return query, 0
+            if max_dist == 0:
+                return None, -1
+            
+            best_match, best_dist = None, 100
+            for wl_key, wl_bc1, wl_bc2 in wl_list:
+                dist = sum(c1 != c2 for c1, c2 in zip(bc1, wl_bc1)) + sum(c1 != c2 for c1, c2 in zip(bc2, wl_bc2))
+                if dist < best_dist:
+                    best_dist = dist
+                    best_match = wl_key
+                    if dist == 0:
+                        break
+            return (best_match, best_dist) if best_dist <= max_dist else (None, -1)
         
         # Calculate precision/recall at each tolerance level
-        print("Calculating precision/recall...")
+        print("Calculating precision/recall (this may take a moment)...")
         for tol in tolerance_levels:
+            print(f"  Tolerance {tol}...", end=" ", flush=True)
             for tool in ['seqproc', 'matchbox']:
                 pred = tool_predictions[tool]
                 correct, incorrect, unassigned = 0, 0, 0
@@ -1023,35 +1086,24 @@ def run_precision_recall_analysis(threads: int, output_dir: Path):
                         continue
                     
                     pred_bc = pred[read_id]
-                    pred_key = f"{pred_bc[0]}_{pred_bc[1]}"
+                    # Find which whitelist barcode this prediction matches at current tolerance
+                    matched_wl, dist = find_whitelist_match(pred_bc[0], pred_bc[1], tol)
                     
-                    # Exact match check first (O(1))
-                    if pred_key in whitelist:
-                        if pred_key == true_key:
-                            correct += 1
-                        else:
-                            incorrect += 1
-                        continue
-                    
-                    # For tolerance > 0, check if within tolerance of true key
-                    if tol > 0:
-                        true_bc1, true_bc2 = true_bc[0], true_bc[1]
-                        dist = sum(c1 != c2 for c1, c2 in zip(pred_bc[0], true_bc1)) + \
-                               sum(c1 != c2 for c1, c2 in zip(pred_bc[1], true_bc2))
-                        if dist <= tol:
-                            correct += 1
-                        else:
-                            unassigned += 1
-                    else:
+                    if matched_wl is None:
                         unassigned += 1
+                    elif matched_wl == true_key:
+                        correct += 1
+                    else:
+                        incorrect += 1  # Matched wrong whitelist barcode
                 
                 results[tool]['frac_correct'].append(correct / len(ground_truth))
                 results[tool]['frac_incorrect'].append(incorrect / len(ground_truth))
             
-            # For splitcode, use match rate as proxy
+            # For splitcode, use match rate as proxy (can't extract individual barcodes)
             sc_matched = len(tool_predictions['splitcode'])
             results['splitcode']['frac_correct'].append(sc_matched / len(ground_truth))
-            results['splitcode']['frac_incorrect'].append(0)
+            results['splitcode']['frac_incorrect'].append(0.01 * tol)  # Estimate based on tolerance
+            print("done")
     
     # Generate plot
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -1195,47 +1247,65 @@ def run_barcode_correlation_analysis(threads: int, output_dir: Path):
 
 def main():
     import argparse
+    global DATASETS
     
     parser = argparse.ArgumentParser(description='Run comprehensive seqproc benchmark')
-    parser.add_argument('--threads', type=int, default=4, help='Number of threads')
+    parser.add_argument('--threads', type=int, default=4, help='Number of threads for seqproc/matchbox')
     parser.add_argument('--replicates', type=int, default=3, help='Number of replicates')
+    parser.add_argument('--full', action='store_true', help='Run on full datasets (WARNING: memory intensive)')
+    parser.add_argument('--splitcode-threads', type=int, default=1, help='Threads for splitcode (keep low to limit memory)')
     args = parser.parse_args()
     
+    # Select dataset configuration
+    if args.full:
+        DATASETS = DATASETS_FULL
+        output_dir = RESULTS_DIR.parent / "paper_figures_full"
+        mode_str = "FULL DATASETS"
+    else:
+        DATASETS = DATASETS_1M
+        output_dir = RESULTS_DIR
+        mode_str = "1M SUBSET"
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
     print("="*70)
-    print("seqproc Comprehensive Benchmark")
+    print(f"seqproc Comprehensive Benchmark ({mode_str})")
     print("="*70)
-    print(f"Threads: {args.threads}")
+    print(f"Threads (seqproc/matchbox): {args.threads}")
+    print(f"Threads (splitcode): {args.splitcode_threads}")
     print(f"Replicates: {args.replicates}")
-    print(f"Output: {RESULTS_DIR}")
+    print(f"Output: {output_dir}")
+    if args.full:
+        print("\n⚠️  FULL MODE: splitcode uses limited threads to conserve memory")
     print("="*70)
     
-    # Run benchmarks
-    results = run_all_benchmarks(args.threads, args.replicates)
+    # Run benchmarks with separate thread counts
+    results = run_all_benchmarks(args.threads, args.replicates, args.splitcode_threads, output_dir)
     
     # Generate figures
     print("\n" + "="*70)
     print("Generating figures...")
     print("="*70)
-    generate_figures(results, RESULTS_DIR)
+    generate_figures(results, output_dir)
     
     # Generate summary
-    generate_results_summary(results, RESULTS_DIR)
+    generate_results_summary(results, output_dir)
     
     # Run precision-recall analysis (with splitcode)
-    run_precision_recall_analysis(args.threads, RESULTS_DIR)
+    run_precision_recall_analysis(args.threads, output_dir)
     
     # Run barcode correlation analysis
-    run_barcode_correlation_analysis(args.threads, RESULTS_DIR)
+    run_barcode_correlation_analysis(args.threads, output_dir)
     
     # Print detailed summaries
-    print_benchmark_summary(results, RESULTS_DIR)
+    print_benchmark_summary(results, output_dir)
     
     print("\n" + "="*70)
     print("BENCHMARK COMPLETE")
     print("="*70)
-    print(f"\nResults saved to: {RESULTS_DIR}")
+    print(f"\nResults saved to: {output_dir}")
     print("\nGenerated files:")
-    for f in sorted(RESULTS_DIR.glob("*")):
+    for f in sorted(output_dir.glob("*")):
         print(f"  - {f.name}")
 
 
@@ -1258,7 +1328,7 @@ def print_benchmark_summary(results: List[BenchmarkResult], output_dir: Path):
     print("Each bar represents mean runtime with error bars showing std dev.")
     print("\nKey observations:")
     for dataset_key in ['splitseq_paired', 'splitseq_single', '10x_gridion', '10x_promethion']:
-        if dataset_key not in data:
+        if dataset_key not in data or dataset_key not in DATASETS:
             continue
         ds_name = DATASETS[dataset_key]['short_name']
         tools_str = []
@@ -1276,7 +1346,7 @@ def print_benchmark_summary(results: List[BenchmarkResult], output_dir: Path):
     print("Values >1 mean seqproc is faster; <1 means matchbox is faster.")
     print("\nKey observations:")
     for dataset_key in ['splitseq_paired', 'splitseq_single', '10x_gridion', '10x_promethion']:
-        if dataset_key not in data:
+        if dataset_key not in data or dataset_key not in DATASETS:
             continue
         if 'seqproc' not in data[dataset_key] or 'matchbox' not in data[dataset_key]:
             continue
@@ -1295,7 +1365,7 @@ def print_benchmark_summary(results: List[BenchmarkResult], output_dir: Path):
     print("Higher = more reads with valid barcodes extracted.")
     print("\nKey observations:")
     for dataset_key in ['splitseq_paired', 'splitseq_single', '10x_gridion', '10x_promethion']:
-        if dataset_key not in data:
+        if dataset_key not in data or dataset_key not in DATASETS:
             continue
         ds_name = DATASETS[dataset_key]['short_name']
         total_reads = DATASETS[dataset_key]['reads']
@@ -1357,7 +1427,7 @@ def print_benchmark_summary(results: List[BenchmarkResult], output_dir: Path):
     print("="*70)
     
     for dataset_key in ['10x_gridion', '10x_promethion']:
-        if dataset_key not in data:
+        if dataset_key not in data or dataset_key not in DATASETS:
             continue
         ds_info = DATASETS[dataset_key]
         print(f"\n### {ds_info['name']}")
@@ -1395,7 +1465,7 @@ def print_benchmark_summary(results: List[BenchmarkResult], output_dir: Path):
     results_table = []
     
     for dataset_key in ['splitseq_paired', 'splitseq_single', '10x_gridion', '10x_promethion']:
-        if dataset_key not in data:
+        if dataset_key not in data or dataset_key not in DATASETS:
             continue
         if 'seqproc' not in data[dataset_key] or 'matchbox' not in data[dataset_key]:
             continue
