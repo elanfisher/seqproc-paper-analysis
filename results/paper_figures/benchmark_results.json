@@ -1,0 +1,150 @@
+{
+  "splitseq_pe_raw": {
+    "name": "SPLiT-seq PE (Raw)",
+    "total_reads": 1000000,
+    "tools": {
+      "seqproc": {
+        "mean_runtime": 1.3366132577260335,
+        "std_runtime": 0.04738065848824167,
+        "mean_memory_mb": 27.170572916666668,
+        "mean_reads_out": 741006,
+        "recovery_rate": 74.1006
+      },
+      "matchbox": {
+        "mean_runtime": 100.811794201533,
+        "std_runtime": 1.628367975946483,
+        "mean_memory_mb": 338.7135416666667,
+        "mean_reads_out": 834889,
+        "recovery_rate": 83.4889
+      }
+    }
+  },
+  "splitseq_pe_replacement": {
+    "name": "SPLiT-seq PE (Replacement)",
+    "total_reads": 1000000,
+    "tools": {
+      "seqproc": {
+        "mean_runtime": 1.8823661009470622,
+        "std_runtime": 0.02029786323188312,
+        "mean_memory_mb": 41.44921875,
+        "mean_reads_out": 741005,
+        "recovery_rate": 74.1005
+      },
+      "splitcode": {
+        "mean_runtime": 3.025306463241577,
+        "std_runtime": 0.04520909720099141,
+        "mean_memory_mb": 108.16927083333333,
+        "mean_reads_out": 911217,
+        "recovery_rate": 91.1217
+      },
+      "matchbox": {
+        "mean_runtime": 98.48367555936177,
+        "std_runtime": 0.641600882738123,
+        "mean_memory_mb": 338.7825520833333,
+        "mean_reads_out": 834889,
+        "recovery_rate": 83.4889
+      }
+    }
+  },
+  "splitseq_se_raw": {
+    "name": "SPLiT-seq Long Read",
+    "total_reads": 1000000,
+    "tools": {
+      "seqproc": {
+        "mean_runtime": 4.001503149668376,
+        "std_runtime": 0.016232150870569638,
+        "mean_memory_mb": 24.15234375,
+        "mean_reads_out": 241771,
+        "recovery_rate": 24.177100000000003
+      },
+      "matchbox": {
+        "mean_runtime": 2.9812769889831543,
+        "std_runtime": 0.01954290742573566,
+        "mean_memory_mb": 151.54427083333334,
+        "mean_reads_out": 240065,
+        "recovery_rate": 24.0065
+      },
+      "splitcode": {
+        "mean_runtime": 30.85768524805705,
+        "std_runtime": 0.6707654853983203,
+        "mean_memory_mb": 150.875,
+        "mean_reads_out": 279699,
+        "recovery_rate": 27.9699
+      }
+    }
+  },
+  "10x_short": {
+    "name": "10x Chromium v2 Short Read",
+    "total_reads": 1000000,
+    "tools": {
+      "seqproc": {
+        "mean_runtime": 0.5608019034067789,
+        "std_runtime": 0.02276051943045853,
+        "mean_memory_mb": 23.217447916666668,
+        "mean_reads_out": 1000000,
+        "recovery_rate": 100.0
+      },
+      "matchbox": {
+        "mean_runtime": 2.1256089210510254,
+        "std_runtime": 0.03063739080428618,
+        "mean_memory_mb": 323.9765625,
+        "mean_reads_out": 1000000,
+        "recovery_rate": 100.0
+      }
+    }
+  },
+  "10x_promethion": {
+    "name": "10x PromethION (Long)",
+    "total_reads": 1000000,
+    "tools": {
+      "seqproc": {
+        "mean_runtime": 7.505091428756714,
+        "std_runtime": 0.13666273546244173,
+        "mean_memory_mb": 25.234375,
+        "mean_reads_out": 676085,
+        "recovery_rate": 67.6085
+      },
+      "matchbox": {
+        "mean_runtime": 6.935023148854573,
+        "std_runtime": 0.03059630008680234,
+        "mean_memory_mb": 215.32291666666666,
+        "mean_reads_out": 915485,
+        "recovery_rate": 91.5485
+      },
+      "splitcode": {
+        "mean_runtime": 18.030863920847576,
+        "std_runtime": 0.3722884393814703,
+        "mean_memory_mb": 88.38541666666667,
+        "mean_reads_out": 662802,
+        "recovery_rate": 66.2802
+      }
+    }
+  },
+  "sciseq": {
+    "name": "Sci-Seq 3",
+    "total_reads": 1000000,
+    "tools": {
+      "seqproc": {
+        "mean_runtime": 0.6749009291330973,
+        "std_runtime": 0.005483644514241189,
+        "mean_memory_mb": 22.876302083333332,
+        "mean_reads_out": 884318,
+        "recovery_rate": 88.43180000000001
+      },
+      "matchbox": {
+        "mean_runtime": 8.05585773785909,
+        "std_runtime": 0.06499840528229396,
+        "mean_memory_mb": 173.64192708333334,
+        "mean_reads_out": 897666,
+        "recovery_rate": 89.7666
+      },
+      "splitcode": {
+        "mean_runtime": 1.416061560312907,
+        "std_runtime": 0.0423508218400654,
+        "mean_memory_mb": 177.23828125,
+        "mean_reads_out": 884318,
+        "recovery_rate": 88.43180000000001
+      }
+    }
+  }
+}
