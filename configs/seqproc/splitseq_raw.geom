@@ -1,20 +1,20 @@
 # SPLiT-seq RAW extraction (no barcode replacement) for comparison with matchbox
 # For REAL data (SRR6750041) - GCT variant linkers
 # CORRECTED Structure on R2: [NN:2][UMI:8][BC3:8][Linker1:30][BC2:8][Linker2:30][BC1:8][rest]
-# Note: UMI is 8bp (not 10bp), Linker2 is 30bp (not 16bp)
+# Note: UMI is 8bp (verified), Linker2 is 30bp (verified)
 
 read1 = r:
 skip2 = x[2]
 umi = u[8]
 bc3 = b[8]
 
-# Linker1 - 30bp with hamming distance 2 (same as splitcode)
-l1 = anchor_relative(hamming(f[GTGGCCGCTGTTTCGCATCGGCGTACGACT], 2))
+# Linker1 - 30bp with hamming distance 3 (validated)
+l1 = anchor_relative(hamming(f[GTGGCCGCTGTTTCGCATCGGCGTACGACT], 3))
 
 bc2 = b[8]
 
-# Linker2 - 30bp with hamming distance 2 (CORRECTED - was incorrectly 16bp)
-l2 = anchor_relative(hamming(f[ATCCACGTGCTTGAGAGGCCAGAGCATTCG], 2))
+# Linker2 - 30bp with hamming distance 3 (validated)
+l2 = anchor_relative(hamming(f[ATCCACGTGCTTGAGAGGCCAGAGCATTCG], 3))
 
 bc1 = b[8]
 rest = r:

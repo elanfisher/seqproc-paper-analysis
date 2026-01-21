@@ -58,12 +58,12 @@ DATASETS = {
         'r1': PROJECT_ROOT / 'data/SRR6750041_1M_R1.fastq',
         'r2': PROJECT_ROOT / 'data/SRR6750041_1M_R2.fastq',
         'mode': 'paired',
-        'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/splitseq_raw.geom',
+        'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/splitseq_filter.geom',
         'matchbox_config': PROJECT_ROOT / 'configs/matchbox/splitseq_replacement.mb',
         'seqproc_maps': [
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_map.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_map.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_map.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_seq2seq.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_seq2seq.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_seq2seq.tsv',
         ],
         'reads': 1_000_000,
         'tools': ['seqproc', 'matchbox'],
@@ -78,9 +78,9 @@ DATASETS = {
         'mode': 'paired',
         'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/splitseq_replacement.geom',
         'seqproc_maps': [
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_map.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_map.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_map.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_seq2seq.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_seq2seq.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_seq2seq.tsv',
         ],
         'matchbox_config': PROJECT_ROOT / 'configs/matchbox/splitseq_replacement.mb',
         'splitcode_config': PROJECT_ROOT / 'configs/splitcode/splitseq_paper.config',
@@ -99,9 +99,9 @@ DATASETS = {
         'matchbox_config': PROJECT_ROOT / 'configs/matchbox/splitseq_singleend.mb',
         'splitcode_config': PROJECT_ROOT / 'configs/splitcode/splitseq_singleend.config',
         'seqproc_maps': [
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_map.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_map.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_map.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_seq2seq.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_seq2seq.tsv',
+            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_seq2seq.tsv',
         ],
         'reads': 1_000_000,
         'tools': ['seqproc', 'matchbox', 'splitcode'],
@@ -409,6 +409,29 @@ class TenXValidityAnalyzer:
     def __init__(self, is_short_read=False):
         self.valid_ids = set()
         self.is_short_read = is_short_read
+        self.whitelist = self._load_whitelist()
+        
+    def _load_whitelist(self):
+        # Prefer v3 whitelist if available
+        wl_paths = [
+            "/home/ubuntu/3M-february-2018.txt.gz",
+            "/home/ubuntu/737K-august-2016.txt"
+        ]
+        wl = set()
+        for path in wl_paths:
+            if os.path.exists(path):
+                print(f"    Loading 10x whitelist from {path}...")
+                import gzip
+                opener = gzip.open if path.endswith('.gz') else open
+                mode = 'rt' if path.endswith('.gz') else 'r'
+                with opener(path, mode) as f:
+                    for line in f:
+                        bc = line.strip().split(',')[0] # handle CSV if needed
+                        if len(bc) >= 16:
+                            wl.add(bc)
+                print(f"    Loaded {len(wl):,} barcodes.")
+                break
+        return wl
         
     def _hamming(self, s1, s2):
         if len(s1) != len(s2): return 99
@@ -418,34 +441,55 @@ class TenXValidityAnalyzer:
         complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N'}
         return "".join(complement.get(base, base) for base in reversed(seq))
 
-    def _find_primer(self, seq, primer):
+    def _find_primer_and_barcode(self, seq, primer):
         # Search for primer in forward
+        primer_len = len(primer)
         best_dist = 99
         
         # Heuristic search window: usually at start or end depending on strand
-        # Check first 60bp and last 60bp
-        search_regions = [(0, 60), (max(0, len(seq)-60), len(seq))]
+        search_regions = [(0, 100), (max(0, len(seq)-100), len(seq))]
+        
+        # Forward Search: Primer -> Barcode
+        # Structure: ...[Primer][Barcode]...
+        for start, end in search_regions:
+            for i in range(start, min(end, len(seq) - primer_len - 16 + 1)):
+                dist = self._hamming(seq[i:i+primer_len], primer)
+                if dist <= 3:
+                    # Found primer, extract barcode after
+                    bc = seq[i+primer_len : i+primer_len+16]
+                    if len(bc) == 16:
+                        return bc
+        
+        # Reverse Complement Search
+        # Structure: ...[Barcode_RC][Primer_RC]...
+        # Real barcode is RC(Barcode_RC)
+        primer_rc = self._rc(primer)
+        primer_rc_len = len(primer_rc)
         
         for start, end in search_regions:
-            for i in range(start, min(end, len(seq) - len(primer) + 1)):
-                dist = self._hamming(seq[i:i+len(primer)], primer)
-                if dist <= 3: return True
+            # Need 16bp before primer
+            search_start = max(start, 16)
+            for i in range(search_start, min(end, len(seq) - primer_rc_len + 1)):
+                dist = self._hamming(seq[i:i+primer_rc_len], primer_rc)
+                if dist <= 3:
+                    # Found primer_rc, extract barcode before
+                    bc_rc = seq[i-16 : i]
+                    if len(bc_rc) == 16:
+                        return self._rc(bc_rc)
                 
-        # Search Reverse Complement
-        primer_rc = self._rc(primer)
-        for start, end in search_regions:
-            for i in range(start, min(end, len(seq) - len(primer_rc) + 1)):
-                dist = self._hamming(seq[i:i+len(primer_rc)], primer_rc)
-                if dist <= 3: return True
-                
-        return False
+        return None
         
     def analyze_fastqs(self, r1_path, r2_path=None):
         """Analyze FASTQ for validity."""
-        mode = "Short Read (Length=26)" if self.is_short_read else "Long Read (Primer Check)"
+        mode = "Short Read (Length=26)" if self.is_short_read else "Long Read (Primer Check + Whitelist)"
         print(f"    Analyzing 10x input for validity ({mode})...")
         valid_ids = set()
         
+        # Only analyze if we are in short read mode (structure) or have whitelist
+        if not self.is_short_read and not self.whitelist:
+             print("    [WARNING] No whitelist found for 10x validation. Skipping validity check.")
+             return valid_ids
+
         with open(r1_path, 'r') as f:
             while True:
                 header = f.readline()
@@ -454,16 +498,19 @@ class TenXValidityAnalyzer:
                 f.readline()
                 f.readline()
                 
+                read_id = header.strip().split()[0].replace('@', '')
+
                 if self.is_short_read:
                     # 10x v2 R1 must be exactly 26bp (16 BC + 10 UMI)
                     if len(seq) == 26:
-                        valid_ids.add(header.strip().split()[0].replace('@', ''))
+                        valid_ids.add(read_id)
                 else:
-                    # Long read must contain primer
-                    if self._find_primer(seq, self.PRIMER):
-                        valid_ids.add(header.strip().split()[0].replace('@', ''))
+                    # Long Read: Find primer, extract BC, check whitelist
+                    bc = self._find_primer_and_barcode(seq, self.PRIMER)
+                    if bc and bc in self.whitelist:
+                        valid_ids.add(read_id)
                     
-        print(f"    Found {len(valid_ids):,} valid reads in input.")
+        print(f"    Found {len(valid_ids):,} valid reads in input (Gold Standard).")
         self.valid_ids = valid_ids
         return valid_ids
 
