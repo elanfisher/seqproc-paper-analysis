@@ -1,6 +1,13 @@
 # seqproc Paper Analysis
 
-Benchmarking and accuracy analysis scripts for the seqproc paper, comparing seqproc against matchbox and splitcode on SPLiT-seq data.
+Benchmarking and accuracy analysis scripts for the seqproc paper, comparing seqproc against matchbox and splitcode on SPLiT-seq and 10x Genomics data.
+
+## Final Results
+
+The final results used in the paper are located in:
+- **`results/paper_figures_revised/`**: Main SPLiT-seq benchmark figures (Runtime, Recovery, Correlation).
+- **`results/precision_recall/`**: Precision-recall analysis (Figure E style).
+- **`docs/FINAL_REPORT.md`**: Comprehensive summary of the findings.
 
 ## Quick Start
 
@@ -8,69 +15,71 @@ Benchmarking and accuracy analysis scripts for the seqproc paper, comparing seqp
 # Install dependencies
 pip install -r requirements.txt
 
-# Set tool paths
+# Set tool paths (if not in PATH)
 export SEQPROC_BIN=/path/to/seqproc
 export MATCHBOX_BIN=/path/to/matchbox
 export SPLITCODE_BIN=/path/to/splitcode
 
-# Run unified pipeline (benchmark + accuracy)
+# 1. Run Unified SPLiT-seq Benchmark (Figures 1, 2, 4)
 python scripts/run_splitseq_pipeline.py \
-    --r1 /path/to/R1.fastq \
-    --r2 /path/to/R2.fastq \
-    --name my_dataset \
+    --r1 /path/to/SRR6750041_1M_R1.fastq \
+    --r2 /path/to/SRR6750041_1M_R2.fastq \
+    --name SRR6750041_1M \
     --threads 4 \
     --replicates 5
 
-# Run precision-recall analysis (Fig E style)
+# 2. Run Precision-Recall Analysis (Figure 3)
 python scripts/run_precision_recall.py --num-reads 50000 --threads 4
+
+# 3. Run 10x Chromium v2 Benchmark (Splitcode)
+python scripts/benchmark_splitcode_10x.py
 ```
 
 ## Scripts
 
-### `run_splitseq_pipeline.py` - Unified Benchmark + Accuracy Pipeline
-Generates:
-- `fig_runtime_boxplot.png` - Runtime comparison box plot with replicates
-- `fig_speedup.png` - Speedup vs matchbox baseline
-- `fig_match_rate.png` - Read match rate comparison (Fig C style)
-- `fig_correlation_seqproc_matchbox.png` - Barcode count correlation (Fig H style)
-- `fig_correlation_seqproc_splitcode.png` - Barcode count correlation
-- `pipeline_summary.json` - All metrics
+### `run_splitseq_pipeline.py`
+The main orchestration script for the SPLiT-seq benchmark. It runs seqproc, matchbox, and splitcode, measures runtime (with replicates), parses output to calculate recovery rates, and compares barcode assignments for correlation analysis.
+- **Inputs:** Paired-end FASTQ files.
+- **Outputs:** `pipeline_summary.json` and figures in `results/pipeline/<name>/`.
 
-### `run_precision_recall.py` - Precision-Recall Analysis
-Generates synthetic data with known barcodes and measures accuracy at different error rates (Fig E style).
+### `run_precision_recall.py`
+Generates synthetic data with known ground truth to evaluate precision and recall at different error tolerances.
+- **Outputs:** `fig_precision_recall.png` in `results/precision_recall/`.
 
-## Tool Dependencies
+### `benchmark_splitcode_10x.py`
+Specific benchmark for 10x Chromium v2 data using Splitcode with positional extraction, as used for the final paper table updates.
 
-Set paths via environment variables:
+### `generate_revised_figures.py`
+Used to generate the polished figures found in `results/paper_figures_revised/` from the raw JSON results.
 
-- `SEQPROC_BIN` - [seqproc](https://github.com/COMBINE-lab/seqproc)
-- `MATCHBOX_BIN` - [matchbox](https://github.com/noamteyssier/matchbox)
-- `SPLITCODE_BIN` - [splitcode](https://github.com/pachterlab/splitcode)
+## Configurations
 
-## Data
+The analysis relies on specific configuration files for each tool:
 
-SPLiT-seq benchmark data from SRA:
-- `SRR6750041` - 77.6M paired-end reads (SPLiT-seq Round 2)
+### seqproc (`configs/seqproc/`)
+- `splitseq_real.geom`: Main SPLiT-seq geometry (Anchor Relative).
+- `splitseq_filter.geom`: "Locked-in" geometry with whitelist filtering (referenced in Final Report).
+- `10x_longread.geom`: Geometry for 10x Long Read (GridION/PromethION).
 
-## Figures (Matchbox Paper Style)
+### matchbox (`configs/matchbox/`)
+- `splitseq.mb`: SPLiT-seq configuration script.
+- `10x_longread.mb`: 10x Long Read configuration.
 
-| Figure | Script | Description |
-|--------|--------|-------------|
-| Fig C | `run_splitseq_pipeline.py` | Read match rate bar chart |
-| Fig E | `run_precision_recall.py` | Precision-recall at different error rates |
-| Fig H | `run_splitseq_pipeline.py` | Barcode count correlation (R²) |
+### splitcode (`configs/splitcode/`)
+- `splitseq_paper.config`: Main SPLiT-seq configuration.
+- `10x_v2_user.config`: Optimized positional extraction config for 10x v2.
 
 ## Directory Structure
 
 ```
-├── scripts/
-│   ├── run_splitseq_pipeline.py  # Main unified pipeline
-│   └── run_precision_recall.py   # Precision-recall analysis
-├── configs/
-│   ├── seqproc/splitseq_real.geom
-│   ├── matchbox/splitseq.mb
-│   └── splitcode/splitseq_paper.config
-└── results/                      # Output directory
+├── configs/                    # Tool configurations (.geom, .mb, .config)
+├── data/                       # Input datasets (not included in repo)
+├── docs/                       # Final reports and analysis summaries
+├── paper_summaries/            # detailed daily summaries of analysis steps
+├── results/
+│   ├── paper_figures_revised/  # FINAL figures for the paper
+│   └── precision_recall/       # Precision-recall analysis results
+└── scripts/                    # Analysis and plotting scripts
 ```
 
 ## Citation

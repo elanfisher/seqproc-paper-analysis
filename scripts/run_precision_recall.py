@@ -34,10 +34,10 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)
 
-# Tool binaries
-SEQPROC_BIN = os.environ.get("SEQPROC_BIN", "seqproc")
-MATCHBOX_BIN = os.environ.get("MATCHBOX_BIN", "matchbox")
-SPLITCODE_BIN = os.environ.get("SPLITCODE_BIN", "splitcode")
+# Tool binaries - use absolute paths
+SEQPROC_BIN = os.environ.get("SEQPROC_BIN", "/home/ubuntu/combine-lab/seqproc/target/release/seqproc")
+MATCHBOX_BIN = os.environ.get("MATCHBOX_BIN", "/home/ubuntu/combine-lab/matchbox/target/release/matchbox")
+SPLITCODE_BIN = os.environ.get("SPLITCODE_BIN", "/home/ubuntu/combine-lab/splitcode/build/src/splitcode")
 
 # Config files
 SEQPROC_CONFIG = "configs/seqproc/splitseq_real.geom"
@@ -315,7 +315,7 @@ def main():
     # These represent the allowed mismatch threshold for whitelist matching
     tolerance_levels = [0, 1, 2, 3]
     
-    tools = ['seqproc', 'matchbox']
+    tools = ['seqproc', 'matchbox', 'splitcode']
     results = {tool: {'frac_correct': [], 'frac_incorrect': []} for tool in tools}
     
     print(f"\nInput error rate: {INPUT_ERROR_RATE:.0%}")
@@ -351,9 +351,13 @@ def main():
         mb_pred = run_matchbox(r2_path, args.threads, tmpdir)
         print(f"{len(mb_pred):,} reads extracted")
         
-        # Verify both tools processed the same reads
+        print("Running splitcode...", end=" ", flush=True)
+        sc_pred = run_splitcode(r1_path, r2_path, args.threads, tmpdir)
+        print(f"{len(sc_pred):,} reads extracted")
+        
+        # Verify tools processed reads
         common_reads = set(sp_pred.keys()) & set(mb_pred.keys())
-        print(f"\nVerification: {len(common_reads):,} reads processed by BOTH tools")
+        print(f"\nVerification: {len(common_reads):,} reads processed by seqproc & matchbox")
         
         # Calculate precision/recall at each tolerance level
         for tol in tolerance_levels:
@@ -374,13 +378,22 @@ def main():
             results['matchbox']['frac_correct'].append(mb_correct)
             results['matchbox']['frac_incorrect'].append(mb_incorrect)
             print(f"  matchbox: correct={mb_correct:.3f}, incorrect={mb_incorrect:.3f}")
+            
+            # splitcode - note: splitcode does error correction internally, so tolerance doesn't apply the same way
+            # We measure what fraction of reads splitcode matched correctly
+            sc_correct, sc_incorrect = calculate_precision_recall_at_tolerance(
+                ground_truth, sc_pred, whitelist, max_mismatch=tol
+            )
+            results['splitcode']['frac_correct'].append(sc_correct)
+            results['splitcode']['frac_incorrect'].append(sc_incorrect)
+            print(f"  splitcode: correct={sc_correct:.3f}, incorrect={sc_incorrect:.3f}")
     
     # Generate Fig E style plot
     print("\nGenerating precision-recall plot...")
     
     fig, ax = plt.subplots(figsize=(8, 6))
     
-    for tool in ['seqproc', 'matchbox']:
+    for tool in ['seqproc', 'matchbox', 'splitcode']:
         frac_correct = results[tool]['frac_correct']
         frac_incorrect = results[tool]['frac_incorrect']
         
@@ -393,10 +406,10 @@ def main():
             ax.scatter(fi, fc, color=COLORS[tool], marker=MARKERS[i], 
                       s=100, edgecolor='black', linewidth=1, zorder=5)
     
-    # Add legend for tolerance levels (matching matchbox paper style)
+    # Add legend for tolerance levels (corrected labels)
     for i, tol in enumerate(tolerance_levels):
         ax.scatter([], [], color='gray', marker=MARKERS[i], s=80, 
-                  label=f'Error rate {tol}', edgecolor='black')
+                  label=f'Tolerance {tol}', edgecolor='black')
     
     ax.set_xlabel('Fraction of reads with incorrect barcodes', fontsize=12)
     ax.set_ylabel('Fraction of reads with correct barcodes', fontsize=12)
