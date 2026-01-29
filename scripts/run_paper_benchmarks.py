@@ -49,6 +49,8 @@ COLORS = {
 }
 
 # Dataset configurations
+reads = 1000000
+
 DATASETS = {
     # Raw extraction benchmarks
     'splitseq_pe_raw': {
@@ -68,6 +70,7 @@ DATASETS = {
         'reads': 1_000_000,
         'tools': ['seqproc', 'matchbox'],
     },
+
     # Replacement benchmark (seqproc vs splitcode)
     'splitseq_pe_replacement': {
         'name': 'SPLiT-seq PE (Replacement)',
@@ -87,6 +90,7 @@ DATASETS = {
         'reads': 1_000_000,
         'tools': ['seqproc', 'splitcode', 'matchbox'],
     },
+    
     # SPLiT-seq Long-Read
     'splitseq_se_raw': {
         'name': 'SPLiT-seq Long Read',
@@ -98,15 +102,10 @@ DATASETS = {
         'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/splitseq_singleend_primer.geom',
         'matchbox_config': PROJECT_ROOT / 'configs/matchbox/splitseq_singleend.mb',
         'splitcode_config': PROJECT_ROOT / 'configs/splitcode/splitseq_singleend.config',
-        'seqproc_maps': [
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc3_seq2seq.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc2_seq2seq.tsv',
-            PROJECT_ROOT / 'configs/seqproc/splitseq_bc1_seq2seq.tsv',
-        ],
-        'reads': 1_000_000,
-        'tools': ['seqproc', 'matchbox', 'splitcode'],
+        'reads': reads,
+        'tools': ['seqproc', 'matchbox'],
     },
-    # 10x Short-Read (Zebrafish)
+    
     '10x_short': {
         'name': '10x Chromium v2 Short Read',
         'short_name': '10x Short',
@@ -116,52 +115,8 @@ DATASETS = {
         'mode': 'paired', # While geom only uses R1, we provide both for consistency
         'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/10x_v2.geom',
         'matchbox_config': PROJECT_ROOT / 'configs/matchbox/10x_v2.mb',
-        'reads': 1_000_000,
+        'reads': reads,
         'tools': ['seqproc', 'matchbox'],
-    },
-    # 10x Long-read (GridION)
-    # '10x_gridion': {
-    #     'name': '10x GridION (Short)',
-    #     'short_name': '10x GridION (Short)',
-    #     'category': 'raw',
-    #     'r1': PROJECT_ROOT / 'data/10x/ERR9958134_1M.fastq',
-    #     'r2': None,
-    #     'mode': 'single',
-    #     'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/10x_longread_fwd.geom',
-    #     'seqproc_geom_rev': PROJECT_ROOT / 'configs/seqproc/10x_longread_rev.geom',
-    #     'matchbox_config': PROJECT_ROOT / 'configs/matchbox/10x_longread.mb',
-    #     'splitcode_config': PROJECT_ROOT / 'configs/splitcode/10x_longread.config',
-    #     'reads': 1_000_000,
-    #     'tools': ['seqproc', 'matchbox', 'splitcode'],
-    # },
-    # 10x Long-read (PromethION)
-    '10x_promethion': {
-        'name': '10x PromethION (Long)',
-        'short_name': '10x PromethION (Long)',
-        'category': 'raw',
-        'r1': PROJECT_ROOT / 'data/10x/ERR9958135_1M.fastq',
-        'r2': None,
-        'mode': 'single',
-        'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/10x_longread_fwd.geom',
-        'seqproc_geom_rev': PROJECT_ROOT / 'configs/seqproc/10x_longread_rev.geom',
-        'matchbox_config': PROJECT_ROOT / 'configs/matchbox/10x_longread.mb',
-        'splitcode_config': PROJECT_ROOT / 'configs/splitcode/10x_longread.config',
-        'reads': 1_000_000,
-        'tools': ['seqproc', 'matchbox', 'splitcode'],
-    },
-    # Sci-Seq 3
-    'sciseq': {
-        'name': 'Sci-Seq 3',
-        'short_name': 'Sci-Seq 3',
-        'category': 'raw',
-        'r1': PROJECT_ROOT / 'data/SRR7827254_1.fastq',
-        'r2': PROJECT_ROOT / 'data/SRR7827254_2.fastq',
-        'mode': 'paired',
-        'seqproc_geom': PROJECT_ROOT / 'configs/seqproc/sciseq3.geom',
-        'matchbox_config': PROJECT_ROOT / 'configs/matchbox/sciseq3.mb',
-        'splitcode_config': PROJECT_ROOT / 'configs/splitcode/sciseq3.config',
-        'reads': 1_000_000,
-        'tools': ['seqproc', 'matchbox', 'splitcode'],
     },
 }
 
@@ -564,36 +519,37 @@ def run_seqproc(dataset: dict, tmpdir: str, threads: int) -> Tuple[float, float,
     if 'seqproc_geom_rev' in dataset:
         out1_fwd = f"{tmpdir}/seqproc_R1_fwd.fq"
         out1_rev = f"{tmpdir}/seqproc_R1_rev.fq"
+        out2_fwd = f"{tmpdir}/seqproc_R2_fwd.fq"
+        out2_rev = f"{tmpdir}/seqproc_R2_rev.fq"
         
-        # Run forward pass
-        cmd_fwd = f"{SEQPROC_BIN} --geom {dataset['seqproc_geom']} --file1 {dataset['r1']} --out1 {out1_fwd} --threads {threads}"
+        # Run forward pass (Generate R1 and R2)
+        cmd_fwd = f"{SEQPROC_BIN} --geom {dataset['seqproc_geom']} --file1 {dataset['r1']} --out1 {out1_fwd} --out2 {out2_fwd} --threads {threads}"
         rt1, mem1, rc1, _ = run_with_memory(cmd_fwd, PROJECT_ROOT)
         
-        # Run reverse pass
-        cmd_rev = f"{SEQPROC_BIN} --geom {dataset['seqproc_geom_rev']} --file1 {dataset['r1']} --out1 {out1_rev} --threads {threads}"
+        # Run reverse pass (Generate R1 and R2)
+        cmd_rev = f"{SEQPROC_BIN} --geom {dataset['seqproc_geom_rev']} --file1 {dataset['r1']} --out1 {out1_rev} --out2 {out2_rev} --threads {threads}"
         rt2, mem2, rc2, _ = run_with_memory(cmd_rev, PROJECT_ROOT)
         
-        # Merge outputs
-        # We simply concatenate them
-        if os.path.exists(out1_fwd) and os.path.exists(out1_rev):
+        # Merge outputs (R1 and R2)
+        # Concatenate R1s
+        if os.path.exists(out1_fwd) or os.path.exists(out1_rev):
             with open(out1, 'wb') as outfile:
-                with open(out1_fwd, 'rb') as f:
-                    outfile.write(f.read())
-                with open(out1_rev, 'rb') as f:
-                    outfile.write(f.read())
-        elif os.path.exists(out1_fwd):
-            os.rename(out1_fwd, out1)
-        elif os.path.exists(out1_rev):
-            os.rename(out1_rev, out1)
+                if os.path.exists(out1_fwd):
+                    with open(out1_fwd, 'rb') as f: outfile.write(f.read())
+                if os.path.exists(out1_rev):
+                    with open(out1_rev, 'rb') as f: outfile.write(f.read())
+        
+        # Concatenate R2s (if they exist)
+        if os.path.exists(out2_fwd) or os.path.exists(out2_rev):
+            with open(out2, 'wb') as outfile:
+                if os.path.exists(out2_fwd):
+                    with open(out2_fwd, 'rb') as f: outfile.write(f.read())
+                if os.path.exists(out2_rev):
+                    with open(out2_rev, 'rb') as f: outfile.write(f.read())
             
         runtime = rt1 + rt2
         memory_mb = max(mem1, mem2)
         
-        if dataset['mode'] == 'paired':
-            # This logic assumes single-end for now as 10x long read is single
-            # If paired, we'd need to handle R2 as well (merging fwd/rev R2s)
-            pass
-            
         reads = count_fastq_reads(out1)
         return runtime, memory_mb, reads
 
