@@ -1231,6 +1231,11 @@ def run_barcode_correlation_analysis(threads: int, output_dir: Path):
             ax.legend(fontsize=11)
             ax.grid(True, alpha=0.3)
             
+            # Add note about low-count variance
+            ax.text(0.02, 0.98, 'Note: Low-count barcodes show expected\nsampling variance between tools',
+                   transform=ax.transAxes, fontsize=9, verticalalignment='top',
+                   style='italic', color='gray')
+            
             plt.tight_layout()
             plt.savefig(output_dir / 'fig7_barcode_correlation.png', dpi=300, bbox_inches='tight')
             plt.savefig(output_dir / 'fig7_barcode_correlation.pdf', bbox_inches='tight')
